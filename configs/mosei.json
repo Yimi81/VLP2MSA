@@ -1,0 +1,97 @@
+{
+    "name": "MOSEI",
+    "n_gpu": 4,
+    "arch": {
+        "type": "VLP2MSA",
+        "args": {
+            "video_params": {
+                "model": "CLIP",
+                "arch_config": "ViT-B/16",
+                "num_frames": 4,
+                "pretrained": true,
+                "layers": 4
+            },
+            "text_params": {
+                "model": "bert-base-uncased",
+                "pretrained": true,
+                "input": "text"
+            },
+            "prompt_params": {
+                "layers": 4,
+                "embed_dim": 512,
+                "alpha": 1e-4
+            },
+            "fusion_params":
+            {
+                "attention_probs_dropout_prob": 0.1,
+                "hidden_act": "gelu",
+                "hidden_dropout_prob": 0.1,
+                "hidden_size": 512,
+                "initializer_range": 0.02,
+                "intermediate_size": 2048,
+                "max_position_embeddings": 128,
+                "num_attention_heads": 8,
+                "num_hidden_layers": 4,
+                "vocab_size": 512
+            },
+            "projection": "minimal",
+            "load_checkpoint" : ""
+        }
+    },
+    "data_loader": {
+        "type": "TextVideoDataLoader",
+        "args":{
+            "dataset_name": "MOSEI",
+            "data_dir": "/mnt/data1/qiyuan/yiguofeng/MSA_Datasets/MOSEI",
+            "shuffle": true,
+            "num_workers": 8,
+            "batch_size": 64,
+            "split": "train",
+            "subsample": 1,
+            "text_params": {
+                "input": "text"
+            },
+            "video_params": {
+                "extraction_fps": 25,
+                "extraction_res": 256,
+                "input_res": 224,
+                "num_frames": 4,
+                "stride": 1,
+                "loading": "tolerant"
+            },
+            "reader": "cv2"
+        }
+    },
+    "optimizer": {
+        "type": "AdamW",
+        "args":{
+            "lr": 2e-5
+        }
+    },
+    "loss": {
+        "type": "NormSoftmaxLoss",
+        "args": {
+        }
+    },
+    "metrics": [
+        "t2v_metrics",
+        "v2t_metrics"
+     ],
+    "trainer": {
+        "epochs": 10,
+        "max_samples_per_epoch": 16326,
+        "save_dir": "exps",
+        "save_period": 5,
+        "verbosity": 2,
+        "monitor": "max val_acc2",
+        "early_stop": 5,
+        "neptune": false,
+        "seed": 1111
+    },
+    "visualizer": {
+        "type": "",
+        "args": {
+        }
+    }
+
+}
