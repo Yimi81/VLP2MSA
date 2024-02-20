@@ -42,7 +42,7 @@
         "type": "TextVideoDataLoader",
         "args":{
             "dataset_name": "SIMS",
-            "data_dir": "/mnt/data1/qiyuan/yiguofeng/MSA_Datasets/SIMS",
+            "data_dir": "/your-path/SIMS",
             "shuffle": true,
             "num_workers": 4,
             "batch_size": 32,

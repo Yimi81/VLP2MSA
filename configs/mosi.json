@@ -42,7 +42,7 @@
         "type": "TextVideoDataLoader",
         "args":{
             "dataset_name": "MOSI",
-            "data_dir": "/home/qiyuan/yiguofeng/CLIP4MSA/data/MOSI",
+            "data_dir": "/your-path/MOSI",
             "shuffle": true,
             "num_workers": 4,
             "batch_size": 32,

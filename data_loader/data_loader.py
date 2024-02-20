@@ -1,16 +1,9 @@
 from base import BaseDataLoaderExplicitSplit, BaseMultiDataLoader
-from data_loader.ConceptualCaptions_dataset import ConceptualCaptions3M
-from data_loader.LSMDC_dataset import LSMDC
-from data_loader.MSRVTT_dataset import MSRVTT
-from data_loader.WebVid_dataset import WebVid
-from data_loader.VideoDirectory_dataset import VideoDirectory, CMDShotFeats
-from data_loader.ImageDirectory_dataset import ImageDirectory
+
 from data_loader.MOSI_dataset import MOSI
 from data_loader.MOSEI_dataset import MOSEI
 from data_loader.SIMS_dataset import SIMS
 from data_loader.SIMS_V2_dataset import SIMS_V2
-
-
 
 from data_loader.transforms import init_transform_dict
 

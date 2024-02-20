@@ -7,9 +7,6 @@ from transformers import AutoModel
 import json
 import numpy as np
 
-from timm.models.vision_transformer import PatchEmbed
-from functools import partial
-
 from base import BaseModel
 from utils.util import state_dict_data_parallel_fix
 from model.model_TVI import TextVideoIntegrationTransformer
@@ -17,80 +14,6 @@ from model.prompt import VideoTextPrompt
 from model.model_IHT import InterFrameHybridTransformer
 import clip
 import einops
-
-class Mlp(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
-        super().__init__()
-        out_features = out_features or in_features
-        hidden_features = hidden_features or in_features
-        self.fc1 = nn.Linear(in_features, hidden_features)
-        self.act = act_layer()
-        self.fc2 = nn.Linear(hidden_features, out_features)
-        self.drop = nn.Dropout(drop)
-
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.drop(x)
-        x = self.fc2(x)
-        x = self.drop(x)
-        return x
-
-
-class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
-        super().__init__()
-        self.num_heads = num_heads
-        head_dim = dim // num_heads
-        # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
-        self.scale = qk_scale or head_dim ** -0.5
-
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
-        self.proj_drop = nn.Dropout(proj_drop)
-
-    def forward(self, x, mask=None):
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C //
-                                  self.num_heads).permute(2, 0, 3, 1, 4)
-        # make torchscript happy (cannot use tensor as tuple)
-        q, k, v = qkv[0], qkv[1], qkv[2]
-
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        if mask is not None:
-            attn = attn.masked_fill(
-                ~mask[:, None, None, :].bool(), float('-1e8'))
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
-
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
-        x = self.proj(x)
-        x = self.proj_drop(x)
-        return x
-
-
-class Block(nn.Module):
-
-    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
-        super().__init__()
-        self.norm1 = norm_layer(dim)
-        self.attn = Attention(
-            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
-        # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
-        self.drop_path = DropPath(
-            drop_path) if drop_path > 0. else nn.Identity()
-        self.norm2 = norm_layer(dim)
-        mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim,
-                       act_layer=act_layer, drop=drop)
-
-    def forward(self, x, mask=None):
-        x = x + self.drop_path(self.attn(self.norm1(x), mask))
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
-        return x
-    
 class VLP2MSA(BaseModel):
     def __init__(self,
                  video_params,
@@ -100,14 +23,8 @@ class VLP2MSA(BaseModel):
                  projection_dim=256,
                  load_checkpoint=None,
                  projection='minimal',
-                 load_temporal_fix='zeros',
-                 img_size=224, in_chans=3,
-        patch_size=16, audio_patch_size=[2, 128], embed_dim=768, depth=12, num_heads=12,
-        mlp_ratio=4, norm_layer=partial(nn.LayerNorm), eps=1e-6,
-):
+                 load_temporal_fix='zeros'):
         super().__init__()
-        norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
-
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.video_params = video_params
         self.text_params = text_params
@@ -159,49 +76,20 @@ class VLP2MSA(BaseModel):
                 assert output_width ** 2 + 1 == clip_state_dict["visual.attnpool.positional_embedding"].shape[0]
                 image_resolution = output_width * 32
 
-            # embed_dim = clip_state_dict["text_projection"].shape[1]
+            embed_dim = clip_state_dict["text_projection"].shape[1]
             context_length = clip_state_dict["positional_embedding"].shape[0]
             vision_heads = vision_width // 64
-            self.num_frames = video_params['num_frames']
+
             fusion_params["max_position_embeddings"] = context_length
 
-            self.patch_embed_v = PatchEmbed(
-                img_size=img_size,
-                patch_size=patch_size,
-                in_chans=in_chans,
-                embed_dim=embed_dim,
-            )
-
-            self.num_patches_v = self.patch_embed_v.num_patches
-            self.type_embed_v = nn.Parameter(torch.zeros(1, 1, embed_dim))
-            self.patch_size = patch_size
-            self.temporal_embed = nn.Parameter(torch.zeros(
-                1, video_params['num_frames'], embed_dim))
-            self.pos_embed_v = nn.Parameter(
-                torch.zeros(1, self.num_patches_v, embed_dim))
-
-            model = nn.ModuleList(
-                [
-                    Block(
-                        dim=embed_dim,
-                        num_heads=num_heads,
-                        mlp_ratio=mlp_ratio,
-                        qkv_bias=True,
-                        qk_scale=None,
-                        norm_layer=norm_layer,
-                    )
-                    for i in range(6)
-                ]
-            )
-
-            # model = InterFrameHybridTransformer(
-            #                         input_resolution=image_resolution,
-            #                         patch_size=vision_patch_size,
-            #                         width=vision_width,
-            #                         layers=video_params['layers'],
-            #                         heads=vision_heads,
-            #                         output_dim=embed_dim,
-            #                         num_frames=num_frames)
+            model = InterFrameHybridTransformer(
+                                    input_resolution=image_resolution,
+                                    patch_size=vision_patch_size,
+                                    width=vision_width,
+                                    layers=video_params['layers'],
+                                    heads=vision_heads,
+                                    output_dim=embed_dim,
+                                    num_frames=num_frames)
 
             state_dict = {}
             for key, val in clip_state_dict.items():
@@ -225,8 +113,8 @@ class VLP2MSA(BaseModel):
             self.load_state_dict(new_state_dict, strict=True)
 
 
-        # self.proj_l = nn.Linear(768, 512)
-        self.text_prompts_generator = VideoTextPrompt(layers=prompt_params['layers'], embed_dim=768, alpha=prompt_params['alpha'],)
+        self.proj_l = nn.Linear(768, 512)
+        self.text_prompts_generator = VideoTextPrompt(layers=prompt_params['layers'], embed_dim=prompt_params['embed_dim'], alpha=prompt_params['alpha'],)
 
         proj_embed_dim = 256
         self.temp = nn.Parameter(torch.ones([]) * 0.07)
@@ -235,7 +123,7 @@ class VLP2MSA(BaseModel):
 
         self.fusion_transformer = TextVideoIntegrationTransformer(fusion_params)
 
-        self.out_layer = nn.Linear(768, 1)
+        self.out_layer = nn.Linear(512, 1)
 
     def set_device(self, device):
         self.device = device
@@ -245,7 +133,7 @@ class VLP2MSA(BaseModel):
         video_data = data['video'] 
 
         text_embeddings, text_mask = self.compute_text(text_data)  
-        # text_embeddings = self.proj_l(text_embeddings) 
+        text_embeddings = self.proj_l(text_embeddings) 
 
         video_embeddings, video_feat = self.compute_video(video_data) 
 
@@ -276,45 +164,16 @@ class VLP2MSA(BaseModel):
 
         text_mask = text_data['attention_mask']
         return text_embeddings, text_mask
-    def get_patch_mask(self, x):
-        """
-        masks out blank regions of the audios/images.
-        """
-        if len(x.shape) == 5:
-            x = x.mean(2)
-            x = F.avg_pool2d(x, self.patch_size,
-                             self.patch_size).flatten(2).flatten(1)
-            x_mask = x != -1
-            return x_mask
-        else:
-            x = x.mean(1)
-            x = F.avg_pool2d(x, self.audio_patch_size,
-                             self.audio_patch_size).flatten(1)
-            x_mask = x != -1
-            return x_mask
 
     def compute_video(self, video_data):
-        # if self.video_params['model'] == "CLIP":
-        #     video_hidden = self.video_model(einops.rearrange(video_data, 'b t c h w -> (b t) c h w')) #torch.Size([16, 4, 3, 224, 224])
-        #     video_embeddings = einops.rearrange(video_hidden, '(b t) c -> b t c', t=self.video_params["num_frames"])#torch.Size([64, 512])
-        # else:
-        #     video_embeddings = self.video_model(video_data)
+        if self.video_params['model'] == "CLIP":
+            video_hidden = self.video_model(einops.rearrange(video_data, 'b t c h w -> (b t) c h w')) #torch.Size([16, 4, 3, 224, 224])
+            video_embeddings = einops.rearrange(video_hidden, '(b t) c -> b t c', t=self.video_params["num_frames"])#torch.Size([64, 512])
+        else:
+            video_embeddings = self.video_model(video_data)
 
-        # video_feat = F.normalize(self.vision_proj(video_embeddings[:,0,:]),dim=-1)  
-
-        b, t, c, h, w = video_data.shape
-        x_v = self.patch_embed_v(video_data.reshape(b*t, c, h, w))
-        x_v = x_v.reshape(b, t * x_v.size(1), x_v.size(-1))
-        frame_patch_len = x_v.size(1)//t
-        x_v += self.pos_embed_v.repeat(1, t, 1)
-        x_v += torch.repeat_interleave(
-            self.temporal_embed[:, :self.num_frames], frame_patch_len, dim=1)
-        x_v += self.type_embed_v 
-
-        for blk in self.video_model:
-            x_v = blk(x_v)
-        video_feat = F.normalize(self.vision_proj(x_v[:,0,:]),dim=-1)  
-        return x_v,video_feat
+        video_feat = F.normalize(self.vision_proj(video_embeddings[:,0,:]),dim=-1)  
+        return video_embeddings,video_feat
     
     def compute_fusion(self, text_embeddings, video_embeddings, text_mask=None):
         concat_features = torch.cat((text_embeddings, video_embeddings), dim=1)  # concatnate tokens and frames

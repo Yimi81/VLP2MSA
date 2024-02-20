@@ -12,9 +12,9 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "args": [
-                "--config", "/home/qiyuan/yiguofeng/my-model/configs/mosi.json",
+                "--config", "configs/mosi.json",
             ],
-            "env": {"CUDA_VISIBLE_DEVICES":"0,3"},
+            "env": {"CUDA_VISIBLE_DEVICES":"0,1"},
         }
     ]
 }

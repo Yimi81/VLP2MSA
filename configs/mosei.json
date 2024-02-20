@@ -42,7 +42,7 @@
         "type": "TextVideoDataLoader",
         "args":{
             "dataset_name": "MOSEI",
-            "data_dir": "/mnt/data1/qiyuan/yiguofeng/MSA_Datasets/MOSEI",
+            "data_dir": "/your-path/MOSEI",
             "shuffle": true,
             "num_workers": 8,
             "batch_size": 64,

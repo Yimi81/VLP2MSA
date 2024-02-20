@@ -4,3 +4,4 @@ exps/
 data/
 *.log
 scripts/
+__pycache__/

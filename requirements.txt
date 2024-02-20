@@ -1,12 +1,16 @@
-pip install psutil
-pip install humanize
-pip install scipy
-pip install transformers==4.10.2
-pip install timm==0.4.5
-pip install einops
-pip install dominate
-pip install sacred
-pip install neptune-contrib
-pip install opencv-python
-pip install ftfy
-pip install decord
+humanize==3.5.0
+scipy==1.6.2
+transformers==4.10.2
+timm==0.4.5
+einops==0.3.0
+dominate==2.6.0
+sacred==0.8.2
+neptune-contrib==0.27.1
+opencv-python
+ftfy
+regex
+tqdm
+decord
+torchvision==0.9.1
+torch==1.8.1
+scikit-learn==0.24.1
