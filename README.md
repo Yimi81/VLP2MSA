@@ -51,4 +51,4 @@ author = {Guofeng Yi and Cunhang Fan and Kang Zhu and Zhao Lv and Shan Liang and
 
 ## 🙏 Acknowledgements
 
-This code is based off the frozen-in-time https://github.com/m-bain/frozen-in-time
+This code is based of the frozen-in-time https://github.com/m-bain/frozen-in-time
